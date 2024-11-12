@@ -7,25 +7,40 @@ import luck from "./luck.ts";
 
 //Constants
 const OAKES_CLASSROOM = leaflet.latLng(36.9894981, -122.0627251);
+// const NULL_ISLAND = leaflet.latLng(0, 0)
 const GAMEPLAY_ZOOM_LEVEL = 18;
-const TILE_DEGREES = 1e-4; //"Use a latitude–longitude grid where cells are 0.0001 degrees wide."
-const CACHE_SPAWN_PROBABILITY = 0.1; //"Place a cache at about 10% of the grid cells..."
-const NEIGHBORHOOD_SIZE = 8; //"...that are within 8 cell-steps away from the player’s current location."
+const MAX_ZOOM_LEVEL = 19; //Leaflet bugs out at 20
+const TILE_DEGREES = 1e-4;
+const CACHE_SPAWN_PROBABILITY = 0.1;
+const NEIGHBORHOOD_SIZE = 8;
+
 const map = leaflet.map(document.getElementById("map")!, {
   center: OAKES_CLASSROOM,
   zoom: GAMEPLAY_ZOOM_LEVEL,
-  minZoom: GAMEPLAY_ZOOM_LEVEL,
-  maxZoom: GAMEPLAY_ZOOM_LEVEL,
-  zoomControl: false,
-  scrollWheelZoom: false,
+  minZoom: 1,
+  maxZoom: MAX_ZOOM_LEVEL,
+  zoomControl: true,
+  scrollWheelZoom: true,
 });
+
 const player_marker = leaflet.marker(OAKES_CLASSROOM);
 const cache_array: Cache[] = [];
 
 interface Cache {
   lat: number;
   lng: number;
-  coins: number;
+  coins: Coin[];
+}
+
+interface Cell {
+  readonly x: number;
+  readonly y: number;
+}
+
+interface Coin {
+  lat: number;
+  lng: number;
+  serial: number;
 }
 
 //I wasn't sure if any of these were unnecessary, so I transferred them all over from example.ts.
@@ -38,7 +53,7 @@ leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
 player_marker.bindPopup("Player location").openPopup(); //The example.ts used tooltip, so I wanted to try popups
 player_marker.addTo(map);
 
-let player_coins = 0;
+const player_coins: Coin[] = [];
 const status_panel = document.querySelector<HTMLDivElement>("#statusPanel")!;
 status_panel.innerHTML = "0 coins collected";
 
@@ -46,11 +61,21 @@ status_panel.innerHTML = "0 coins collected";
 //It just passes some bounds for the cache's location, places it, and binds a popup.
 //I prefer to use x and y when referring to values on a 2D plane, for clarity.
 function spawnCache(x: number, y: number) {
+  const coins_length = Math.floor(
+    luck([x, y, "initialValue"].toString()) * 100,
+  );
   const new_cache: Cache = {
     lat: x,
     lng: y,
-    coins: Math.floor(luck([x, y, "initialValue"].toString()) * 100),
+    coins: [],
   };
+  for (let i = 0; i < coins_length; i++) {
+    new_cache.coins.push({
+      lat: x,
+      lng: y,
+      serial: i,
+    });
+  }
   const origin = OAKES_CLASSROOM;
   const bounds = leaflet.latLngBounds([
     [origin.lat + x * TILE_DEGREES, origin.lng + y * TILE_DEGREES],
@@ -91,9 +116,9 @@ function spawnCache(x: number, y: number) {
 }
 
 function collectCoin(cache: Cache, status_panel: HTMLDivElement) {
-  if (cache.coins > 0) {
-    cache.coins--;
-    player_coins++;
+  const popped_coin = cache.coins.pop();
+  if (popped_coin) {
+    player_coins.push(popped_coin);
     status_panel.innerHTML = `${player_coins} coins collected`;
   } else {
     return false;
@@ -101,9 +126,9 @@ function collectCoin(cache: Cache, status_panel: HTMLDivElement) {
 }
 
 function depositCoin(cache: Cache, status_panel: HTMLDivElement) {
-  if (player_coins > 0) {
-    player_coins--;
-    cache.coins++;
+  const popped_coin = player_coins.pop();
+  if (popped_coin) {
+    cache.coins.push(popped_coin);
     status_panel.innerHTML = `${player_coins} coins collected`;
   } else {
     return false;
