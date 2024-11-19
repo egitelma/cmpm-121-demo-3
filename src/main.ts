@@ -27,17 +27,34 @@ const map = leaflet.map(document.getElementById("map")!, {
 const player_marker = leaflet.marker(OAKES_CLASSROOM);
 const cache_array: Cache[] = [];
 const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
-
-interface Cache {
-  lat: number;
-  lng: number;
-  coins: Coin[];
-}
+// let player_position = OAKES_CLASSROOM;
 
 interface Coin {
   lat: number;
   lng: number;
   serial: number;
+}
+
+interface Momento<T> {
+  toMomento(): T;
+  fromMomento(momento: T): void;
+}
+
+class Cache implements Momento<string> {
+  lat: number;
+  lng: number;
+  coins: number;
+  constructor(x: number, y: number, coins_num: number) {
+    this.lat = x;
+    this.lng = y;
+    this.coins = coins_num;
+  }
+  toMomento(): string {
+    return this.coins.toString();
+  }
+  fromMomento(momento: string): void {
+    this.coins = parseInt(momento);
+  }
 }
 
 //I wasn't sure if any of these were unnecessary, so I transferred them all over from example.ts.
@@ -61,18 +78,7 @@ function spawnCache(cell: Cell) {
   const coins_length = Math.floor(
     luck([cell.x, cell.y, "initialValue"].toString()) * 100,
   );
-  const new_cache: Cache = {
-    lat: cell.x,
-    lng: cell.y,
-    coins: [],
-  };
-  for (let i = 0; i < coins_length; i++) {
-    new_cache.coins.push({
-      lat: cell.x,
-      lng: cell.y,
-      serial: i,
-    });
-  }
+  const new_cache = new Cache(cell.x, cell.y, coins_length);
   const bounds = board.getCellBounds(cell);
 
   //Cache marker
@@ -83,10 +89,7 @@ function spawnCache(cell: Cell) {
   cache_rect.bindPopup(() => {
     const popup_div = document.createElement("div");
     popup_div.innerHTML =
-      `This is a cache at (${cell.x},${cell.y}), currently containing <span id="value">${new_cache.coins.length}</span> coins.`;
-    let top_coin = new_cache.coins[new_cache.coins.length - 1];
-    popup_div.innerHTML +=
-      `\nTop coin: <span id="top_coin">${top_coin.lat}:${top_coin.lng}#${top_coin.serial}</span>`;
+      `This is a cache at (${cell.x},${cell.y}), currently containing <span id="value">${new_cache.coins}</span> coins.`;
     const collect_button = document.createElement("button");
     const deposit_button = document.createElement("button");
     collect_button.innerHTML = `Take a coin`;
@@ -98,23 +101,12 @@ function spawnCache(cell: Cell) {
     collect_button.addEventListener("click", () => {
       collectCoin(new_cache, status_panel);
       popup_div.querySelector<HTMLSpanElement>("#value")!.innerHTML = new_cache
-        .coins.length.toString();
-      if (new_cache.coins.length > 0) {
-        top_coin = new_cache.coins[new_cache.coins.length - 1];
-        popup_div.querySelector<HTMLSpanElement>("#top_coin")!.innerHTML =
-          `${top_coin.lat}:${top_coin.lng}#${top_coin.serial}`;
-      } else {
-        popup_div.querySelector<HTMLSpanElement>("#top_coin")!.innerHTML =
-          `N/A`;
-      }
+        .coins.toString();
     });
     deposit_button.addEventListener("click", () => {
       depositCoin(new_cache, status_panel);
       popup_div.querySelector<HTMLSpanElement>("#value")!.innerHTML = new_cache
-        .coins.length.toString();
-      top_coin = new_cache.coins[new_cache.coins.length - 1];
-      popup_div.querySelector<HTMLSpanElement>("#top_coin")!.innerHTML =
-        `${top_coin.lat}:${top_coin.lng}#${top_coin.serial}`;
+        .coins.toString();
     });
 
     return popup_div;
@@ -123,11 +115,17 @@ function spawnCache(cell: Cell) {
 }
 
 function collectCoin(cache: Cache, status_panel: HTMLDivElement) {
-  const popped_coin = cache.coins.pop();
-  if (popped_coin) {
-    player_coins.push(popped_coin);
+  // const popped_coin = cache.coins.pop();
+  if (cache.coins > 0) {
+    //still a way to display the serial, even if it isn't perfect. Not sure if we're meant to have the same serial setup in this step.
+    const new_coin = {
+      lat: cache.lat,
+      lng: cache.lng,
+      serial: cache.coins,
+    };
+    player_coins.push(new_coin);
     status_panel.innerHTML =
-      `${player_coins.length} coins collected. Most recent coin: ${popped_coin.lat}:${popped_coin.lng}#${popped_coin.serial}`;
+      `${player_coins.length} coins collected. Most recent coin: ${new_coin.lat}:${new_coin.lng}#${new_coin.serial}`;
   } else {
     return false;
   }
@@ -136,7 +134,7 @@ function collectCoin(cache: Cache, status_panel: HTMLDivElement) {
 function depositCoin(cache: Cache, status_panel: HTMLDivElement) {
   const popped_coin = player_coins.pop();
   if (popped_coin) {
-    cache.coins.push(popped_coin);
+    cache.coins++;
     status_panel.innerHTML = `${player_coins.length} coins collected.`;
     if (player_coins.length > 0) {
       const new_top_coin = player_coins[player_coins.length - 1];
@@ -159,4 +157,11 @@ function generateCaches() {
   });
 }
 
+// function createArrows(){
+
+// }
+
+// function move(direction : string){
 generateCaches();
+// }
+// createArrows()
