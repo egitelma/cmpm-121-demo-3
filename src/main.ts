@@ -84,6 +84,9 @@ function spawnCache(cell: Cell) {
     const popup_div = document.createElement("div");
     popup_div.innerHTML =
       `This is a cache at (${cell.x},${cell.y}), currently containing <span id="value">${new_cache.coins.length}</span> coins.`;
+    let top_coin = new_cache.coins[new_cache.coins.length - 1];
+    popup_div.innerHTML +=
+      `\nTop coin: <span id="top_coin">${top_coin.lat}:${top_coin.lng}#${top_coin.serial}</span>`;
     const collect_button = document.createElement("button");
     const deposit_button = document.createElement("button");
     collect_button.innerHTML = `Take a coin`;
@@ -93,14 +96,25 @@ function spawnCache(cell: Cell) {
 
     //Bind click events
     collect_button.addEventListener("click", () => {
-      popup_div.querySelector<HTMLSpanElement>("#value")!.innerHTML = new_cache
-        .coins.toString();
       collectCoin(new_cache, status_panel);
+      popup_div.querySelector<HTMLSpanElement>("#value")!.innerHTML = new_cache
+        .coins.length.toString();
+      if (new_cache.coins.length > 0) {
+        top_coin = new_cache.coins[new_cache.coins.length - 1];
+        popup_div.querySelector<HTMLSpanElement>("#top_coin")!.innerHTML =
+          `${top_coin.lat}:${top_coin.lng}#${top_coin.serial}`;
+      } else {
+        popup_div.querySelector<HTMLSpanElement>("#top_coin")!.innerHTML =
+          `N/A`;
+      }
     });
     deposit_button.addEventListener("click", () => {
-      popup_div.querySelector<HTMLSpanElement>("#value")!.innerHTML = new_cache
-        .coins.toString();
       depositCoin(new_cache, status_panel);
+      popup_div.querySelector<HTMLSpanElement>("#value")!.innerHTML = new_cache
+        .coins.length.toString();
+      top_coin = new_cache.coins[new_cache.coins.length - 1];
+      popup_div.querySelector<HTMLSpanElement>("#top_coin")!.innerHTML =
+        `${top_coin.lat}:${top_coin.lng}#${top_coin.serial}`;
     });
 
     return popup_div;
@@ -112,7 +126,8 @@ function collectCoin(cache: Cache, status_panel: HTMLDivElement) {
   const popped_coin = cache.coins.pop();
   if (popped_coin) {
     player_coins.push(popped_coin);
-    status_panel.innerHTML = `${player_coins} coins collected`;
+    status_panel.innerHTML =
+      `${player_coins.length} coins collected. Most recent coin: ${popped_coin.lat}:${popped_coin.lng}#${popped_coin.serial}`;
   } else {
     return false;
   }
@@ -122,7 +137,12 @@ function depositCoin(cache: Cache, status_panel: HTMLDivElement) {
   const popped_coin = player_coins.pop();
   if (popped_coin) {
     cache.coins.push(popped_coin);
-    status_panel.innerHTML = `${player_coins} coins collected`;
+    status_panel.innerHTML = `${player_coins.length} coins collected.`;
+    if (player_coins.length > 0) {
+      const new_top_coin = player_coins[player_coins.length - 1];
+      status_panel.innerHTML +=
+        ` Most recent coin: ${new_top_coin.lat}:${new_top_coin.lng}#${new_top_coin.serial}`;
+    }
   } else {
     return false;
   }
