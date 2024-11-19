@@ -4,7 +4,7 @@ import "leaflet/dist/leaflet.css";
 import "./style.css";
 import "./leafletWorkaround.ts";
 import luck from "./luck.ts";
-import "./board.ts";
+import { Board, Cell } from "./board.ts";
 
 //Constants
 const OAKES_CLASSROOM = leaflet.latLng(36.9894981, -122.0627251);
@@ -26,6 +26,7 @@ const map = leaflet.map(document.getElementById("map")!, {
 
 const player_marker = leaflet.marker(OAKES_CLASSROOM);
 const cache_array: Cache[] = [];
+const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
 
 interface Cache {
   lat: number;
@@ -56,27 +57,23 @@ status_panel.innerHTML = "0 coins collected";
 //Cache spawner
 //It just passes some bounds for the cache's location, places it, and binds a popup.
 //I prefer to use x and y when referring to values on a 2D plane, for clarity.
-function spawnCache(x: number, y: number) {
+function spawnCache(cell: Cell) {
   const coins_length = Math.floor(
-    luck([x, y, "initialValue"].toString()) * 100,
+    luck([cell.x, cell.y, "initialValue"].toString()) * 100,
   );
   const new_cache: Cache = {
-    lat: x,
-    lng: y,
+    lat: cell.x,
+    lng: cell.y,
     coins: [],
   };
   for (let i = 0; i < coins_length; i++) {
     new_cache.coins.push({
-      lat: x,
-      lng: y,
+      lat: cell.x,
+      lng: cell.y,
       serial: i,
     });
   }
-  const origin = OAKES_CLASSROOM;
-  const bounds = leaflet.latLngBounds([
-    [origin.lat + x * TILE_DEGREES, origin.lng + y * TILE_DEGREES],
-    [origin.lat + (x + 1) * TILE_DEGREES, origin.lng + (y + 1) * TILE_DEGREES],
-  ]);
+  const bounds = board.getCellBounds(cell);
 
   //Cache marker
   const cache_rect = leaflet.rectangle(bounds);
@@ -86,7 +83,7 @@ function spawnCache(x: number, y: number) {
   cache_rect.bindPopup(() => {
     const popup_div = document.createElement("div");
     popup_div.innerHTML =
-      `This is a cache at (${x},${y}), currently containing <span id="value">${new_cache.coins.length}</span> coins.`;
+      `This is a cache at (${cell.x},${cell.y}), currently containing <span id="value">${new_cache.coins.length}</span> coins.`;
     const collect_button = document.createElement("button");
     const deposit_button = document.createElement("button");
     collect_button.innerHTML = `Take a coin`;
@@ -133,27 +130,13 @@ function depositCoin(cache: Cache, status_panel: HTMLDivElement) {
 
 //Actually spawn caches
 function generateCaches() {
-  for (let x = -NEIGHBORHOOD_SIZE; x < NEIGHBORHOOD_SIZE; x++) {
-    for (let y = -NEIGHBORHOOD_SIZE; y < NEIGHBORHOOD_SIZE; y++) {
-      if (luck([x, y].toString()) < CACHE_SPAWN_PROBABILITY) {
-        spawnCache(x, y);
-      }
+  //instead of looping through x and y, we loop through the visible cells
+  const nearby_cells = board.getCellsNearPoint(OAKES_CLASSROOM);
+  nearby_cells.forEach((cell) => { //Same usage of luck as before
+    if (luck([cell.x, cell.y].toString()) < CACHE_SPAWN_PROBABILITY) {
+      spawnCache(cell);
     }
-  }
+  });
 }
 
 generateCaches();
-
-/**
- * Notes from Jackie
- * make cells in the neighborhood size
- * when calling a new board, you take the tile width, fed in from the main file
- * visibility radius, which is the neighborhood size, and then figure out which cells you know
- * check that it's not an already known cell, as in, you haven't already generated a cell on it
- * canonical cell just checks for that, makes sure it's not in knownCells
- *
- * getCellForPoint makes the tile for x and y/column and row
- * getCellBounds draws the rectangle in main
- * getCellsNearPoint just gets a list of cells near the point that are within the radius
- * tile degrees is just tile size
- */
