@@ -4,6 +4,7 @@ import "leaflet/dist/leaflet.css";
 import "./style.css";
 import "./leafletWorkaround.ts";
 import luck from "./luck.ts";
+import "./board.ts";
 
 //Constants
 const OAKES_CLASSROOM = leaflet.latLng(36.9894981, -122.0627251);
@@ -30,11 +31,6 @@ interface Cache {
   lat: number;
   lng: number;
   coins: Coin[];
-}
-
-interface Cell {
-  readonly x: number;
-  readonly y: number;
 }
 
 interface Coin {
@@ -90,7 +86,7 @@ function spawnCache(x: number, y: number) {
   cache_rect.bindPopup(() => {
     const popup_div = document.createElement("div");
     popup_div.innerHTML =
-      `This is a cache at (${x},${y}), currently containing <span id="value">${new_cache.coins}</span> coins.`;
+      `This is a cache at (${x},${y}), currently containing <span id="value">${new_cache.coins.length}</span> coins.`;
     const collect_button = document.createElement("button");
     const deposit_button = document.createElement("button");
     collect_button.innerHTML = `Take a coin`;
@@ -147,3 +143,17 @@ function generateCaches() {
 }
 
 generateCaches();
+
+/**
+ * Notes from Jackie
+ * make cells in the neighborhood size
+ * when calling a new board, you take the tile width, fed in from the main file
+ * visibility radius, which is the neighborhood size, and then figure out which cells you know
+ * check that it's not an already known cell, as in, you haven't already generated a cell on it
+ * canonical cell just checks for that, makes sure it's not in knownCells
+ *
+ * getCellForPoint makes the tile for x and y/column and row
+ * getCellBounds draws the rectangle in main
+ * getCellsNearPoint just gets a list of cells near the point that are within the radius
+ * tile degrees is just tile size
+ */
