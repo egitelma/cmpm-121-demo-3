@@ -1,10 +1,14 @@
 import leaflet from "leaflet";
+import luck from "./luck.ts";
+
+const CACHE_SPAWN_PROBABILITY = 0.1;
 
 //I took the template for this from the slides!
 
 export interface Cell { //using x,y for consistency
   x: number;
   y: number;
+  has_cache: boolean;
 }
 
 export class Board {
@@ -20,22 +24,22 @@ export class Board {
   }
 
   //Create a cell, if it does not already exist; else return the cell at x,y
-  private getCanonicalCell(cell: Cell): Cell {
-    const { x, y } = cell;
+  private getCanonicalCell(x: number, y: number): Cell {
     const key = [x, y].toString();
     if (!this.known_cells.has(key)) {
-      this.known_cells.set(key, cell);
+      let has_cache = false;
+      if (luck([x, y].toString()) < CACHE_SPAWN_PROBABILITY) {
+        has_cache = true;
+      }
+      this.known_cells.set(key, { x, y, has_cache });
     } //Otherwise, do nothing, and get will return undefined
     return this.known_cells.get(key)!;
   }
 
   getCellForPoint(point: leaflet.LatLng): Cell {
-    const x = Math.floor(point.lat / this.tile_width); //Credit to Jackie Sanchez for suggesting that I floor this.
+    const x = Math.floor(point.lat / this.tile_width);
     const y = Math.floor(point.lng / this.tile_width);
-    return this.getCanonicalCell({
-      x,
-      y,
-    });
+    return this.getCanonicalCell(x, y);
   }
 
   getCellBounds(cell: Cell): leaflet.LatLngBounds {
@@ -59,10 +63,10 @@ export class Board {
         tile_y < this.tile_visibility_radius;
         tile_y++
       ) {
-        result_cells.push(this.getCanonicalCell({
-          x: origin_cell.x + tile_x,
-          y: origin_cell.y + tile_y,
-        }));
+        result_cells.push(this.getCanonicalCell(
+          origin_cell.x + tile_x,
+          origin_cell.y + tile_y,
+        ));
       }
     }
     return result_cells;

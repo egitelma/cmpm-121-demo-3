@@ -12,7 +12,6 @@ const OAKES_CLASSROOM = leaflet.latLng(36.9894981, -122.0627251);
 const GAMEPLAY_ZOOM_LEVEL = 18;
 const MAX_ZOOM_LEVEL = 19; //Leaflet bugs out at 20
 const TILE_DEGREES = 1e-4;
-const CACHE_SPAWN_PROBABILITY = 0.1;
 const NEIGHBORHOOD_SIZE = 8;
 
 const map = leaflet.map(document.getElementById("map")!, {
@@ -20,14 +19,18 @@ const map = leaflet.map(document.getElementById("map")!, {
   zoom: GAMEPLAY_ZOOM_LEVEL,
   minZoom: 1,
   maxZoom: MAX_ZOOM_LEVEL,
-  zoomControl: true,
-  scrollWheelZoom: true,
+  zoomControl: false,
+  scrollWheelZoom: false,
 });
 
 const player_marker = leaflet.marker(OAKES_CLASSROOM);
-const cache_array: Cache[] = [];
+let cache_array: Cache[] = []; //current caches
+const momento_map = new Map<number[], string>(); //Momentos - map x,y pairs to momentos
 const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
-// let player_position = OAKES_CLASSROOM;
+const player = {
+  position: OAKES_CLASSROOM,
+  cell: board.getCellForPoint(OAKES_CLASSROOM),
+};
 
 interface Coin {
   lat: number;
@@ -44,16 +47,22 @@ class Cache implements Momento<string> {
   lat: number;
   lng: number;
   coins: number;
+
   constructor(x: number, y: number, coins_num: number) {
     this.lat = x;
     this.lng = y;
     this.coins = coins_num;
   }
+
   toMomento(): string {
-    return this.coins.toString();
+    return `${this.lat},${this.lng},${this.coins}`; //"lat,lng,coins"
   }
+
   fromMomento(momento: string): void {
-    this.coins = parseInt(momento);
+    const info = momento.split(",");
+    this.lat = parseInt(info[0]);
+    this.lng = parseInt(info[1]);
+    this.coins = parseInt(info[2]);
   }
 }
 
@@ -79,6 +88,12 @@ function spawnCache(cell: Cell) {
     luck([cell.x, cell.y, "initialValue"].toString()) * 100,
   );
   const new_cache = new Cache(cell.x, cell.y, coins_length);
+  if (momento_map.has([cell.x, cell.y])) {
+    new_cache.fromMomento(momento_map.get([cell.x, cell.y])!);
+  } else {
+    momento_map.set([cell.x, cell.y], new_cache.toMomento());
+  }
+
   const bounds = board.getCellBounds(cell);
 
   //Cache marker
@@ -118,6 +133,7 @@ function collectCoin(cache: Cache, status_panel: HTMLDivElement) {
   // const popped_coin = cache.coins.pop();
   if (cache.coins > 0) {
     //still a way to display the serial, even if it isn't perfect. Not sure if we're meant to have the same serial setup in this step.
+    cache.coins--;
     const new_coin = {
       lat: cache.lat,
       lng: cache.lng,
@@ -151,17 +167,83 @@ function generateCaches() {
   //instead of looping through x and y, we loop through the visible cells
   const nearby_cells = board.getCellsNearPoint(OAKES_CLASSROOM);
   nearby_cells.forEach((cell) => { //Same usage of luck as before
-    if (luck([cell.x, cell.y].toString()) < CACHE_SPAWN_PROBABILITY) {
+    if (cell.has_cache) {
       spawnCache(cell);
     }
   });
 }
 
-// function createArrows(){
+function createArrows(): HTMLButtonElement[] { //i know this is very ugly so i put it in its own function
+  const arrows: HTMLButtonElement[] = [];
+  const left_arrow = document.createElement("button");
+  left_arrow.innerHTML = "⬅️";
+  left_arrow.addEventListener("click", () => {
+    movePlayer(-TILE_DEGREES, "x");
+  });
+  status_panel.append(left_arrow);
+  arrows.push(left_arrow);
 
-// }
+  const right_arrow = document.createElement("button");
+  right_arrow.innerHTML = "➡️";
+  right_arrow.addEventListener("click", () => {
+    movePlayer(TILE_DEGREES, "x");
+  });
+  status_panel.append(right_arrow);
+  arrows.push(right_arrow);
 
-// function move(direction : string){
+  const up_arrow = document.createElement("button");
+  up_arrow.innerHTML = "⬆️";
+  up_arrow.addEventListener("click", () => {
+    movePlayer(TILE_DEGREES + 0.0000009, "y");
+  });
+  status_panel.append(up_arrow);
+  arrows.push(up_arrow);
+
+  const down_arrow = document.createElement("button");
+  down_arrow.innerHTML = "⬇️";
+  down_arrow.addEventListener("click", () => {
+    movePlayer(-TILE_DEGREES - 0.0000009, "y");
+  });
+  status_panel.append(down_arrow);
+  arrows.push(down_arrow);
+
+  return arrows;
+}
+
+function movePlayer(direction: number, axis: string) {
+  const new_location = player.position;
+  if (axis == "x") {
+    new_location.lng += direction;
+  } else if (axis == "y") {
+    new_location.lat += direction;
+  }
+  map.panTo(new_location);
+  player.position = new_location;
+  player_marker.setLatLng(new_location);
+  resetCells();
+}
+
+function resetCells() {
+  //clear all caches, and restore based on our new location
+  //before clearing, make sure each one is updated to the correct coin count. Then clear the array
+  for (const cache of cache_array) {
+    momento_map.set([cache.lat, cache.lng], cache.toMomento());
+  }
+  cache_array = [];
+
+  //thx to Jackie Sanchez for helping me out with this!
+  //[clearing the Leaflet rectangles from the map]
+  map.eachLayer((layer) => {
+    if (layer instanceof leaflet.Rectangle) {
+      map.removeLayer(layer);
+    }
+  });
+
+  //generate new caches
+  generateCaches();
+}
+
 generateCaches();
-// }
+createArrows();
+
 // createArrows()
