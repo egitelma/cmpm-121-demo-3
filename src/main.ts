@@ -111,12 +111,20 @@ const coin_counter = document.createElement("p");
 coin_counter.innerHTML = "0 coins collected";
 coin_counter.id = "coin_counter";
 status_panel.append(coin_counter);
+
 const geolocate_btn = document.createElement("button");
 geolocate_btn.innerHTML = "🌐";
 geolocate_btn.id = "geolocator";
 status_panel.append(geolocate_btn);
 geolocate_btn.addEventListener("click", () => {
   map.locate({ setView: true, maxZoom: GAMEPLAY_ZOOM_LEVEL });
+});
+
+const save_btn = document.createElement("button");
+save_btn.innerHTML = "Save";
+status_panel.append(save_btn);
+save_btn.addEventListener("click", () => {
+  saveGame();
 });
 
 loadGame();
@@ -155,12 +163,12 @@ function spawnCache(cell: Cell) {
 
     //Bind click events
     collect_button.addEventListener("click", () => {
-      collectCoin(new_cache, coin_counter);
+      collectCoin(new_cache);
       popup_div.querySelector<HTMLSpanElement>("#value")!.innerHTML = new_cache
         .coins.toString();
     });
     deposit_button.addEventListener("click", () => {
-      depositCoin(new_cache, coin_counter);
+      depositCoin(new_cache);
       popup_div.querySelector<HTMLSpanElement>("#value")!.innerHTML = new_cache
         .coins.toString();
     });
@@ -170,37 +178,37 @@ function spawnCache(cell: Cell) {
   cache_array.push(new_cache);
 }
 
-function collectCoin(cache: Cache, coin_counter: HTMLDivElement) {
-  // const popped_coin = cache.coins.pop();
+function collectCoin(cache: Cache) {
   if (cache.coins > 0) {
-    //still a way to display the serial, even if it isn't perfect. Not sure if we're meant to have the same serial setup in this step.
     cache.coins--;
-    const new_coin = new Coin(
-      cache.lat,
-      cache.lng,
-      cache.coins,
+    player_coins.push(
+      new Coin(
+        cache.lat,
+        cache.lng,
+        cache.coins,
+      ),
     );
-    player_coins.push(new_coin);
-    coin_counter.innerHTML =
-      `${player_coins.length} coins collected. Most recent coin: ${new_coin.toString()}`;
-    saveGame();
+    updateCoinCounter();
   } else {
     return false;
   }
 }
 
-function depositCoin(cache: Cache, coin_counter: HTMLDivElement) {
+function depositCoin(cache: Cache) {
   const popped_coin = player_coins.pop();
   if (popped_coin) {
     cache.coins++;
-    coin_counter.innerHTML = `${player_coins.length} coins collected.`;
-    if (player_coins.length > 0) {
-      const top_coin = player_coins[player_coins.length - 1];
-      coin_counter.innerHTML += ` Most recent coin: ${top_coin.toString()}`;
-    }
-    saveGame();
+    updateCoinCounter();
   } else {
     return false;
+  }
+}
+
+function updateCoinCounter() {
+  coin_counter.innerHTML = `${player_coins.length} coins collected.`;
+  if (player_coins.length > 0) {
+    const top_coin = player_coins[player_coins.length - 1];
+    coin_counter.innerHTML += ` Most recent coin: ${top_coin.toString()}`;
   }
 }
 
@@ -271,7 +279,6 @@ function movePlayer(new_location: leaflet.LatLng) {
   player.position = new_location;
   player_marker.setLatLng(new_location);
   resetCells();
-  saveGame();
 }
 
 function resetCells() {
@@ -307,19 +314,22 @@ function saveGame() {
     },
     momentos: mapToArray(momento_map),
   };
-
+  console.log("Save data:", JSON.stringify(save_data));
   localStorage.setItem(SAVE_KEY, JSON.stringify(save_data));
 }
 
 function loadGame() {
   const load_data = localStorage.getItem(SAVE_KEY);
+  console.log("Load data:", load_data);
   if (load_data) {
     const parsed = JSON.parse(load_data);
-    console.log(parsed);
+    console.log("Parsed data:", parsed);
     movePlayer(parsed.player_info.location);
     player_coins = coinToObject(parsed.player_info.coins);
     momento_map = arrayToMap(parsed.momentos);
   }
+  updateCoinCounter();
+  console.log(player_coins);
 }
 
 function mapToArray(given_map: Map<number[], string>) {
@@ -357,10 +367,7 @@ function coinToObject(load_coins: string[]) {
   for (const coin_momento of load_coins) {
     new_coin = new Coin(0, 0, 0);
     new_coin.fromMomento(coin_momento);
-  }
-  coin_counter.innerHTML = `${coin_array.length} coins collected.`;
-  if (coin_array.length > 0) {
-    coin_counter.innerHTML += ` Most recent coin: ${new_coin!.toString()}`;
+    coin_array.push(new_coin);
   }
   return coin_array;
 }
