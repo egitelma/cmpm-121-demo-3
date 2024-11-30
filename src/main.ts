@@ -33,12 +33,14 @@ map.on("locationerror", () => {
 
 const player_marker = leaflet.marker(OAKES_CLASSROOM);
 let cache_array: Cache[] = []; //current caches
-let momento_map = new Map<number[], string>(); //Momentos - map x,y pairs to momentos
+let momento_map = new Map<string, string>(); //Momentos - map x,y pairs to momentos (${x}_${y} as a key format)
 const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
 const player = {
   position: OAKES_CLASSROOM,
   cell: board.getCellForPoint(OAKES_CLASSROOM),
 };
+
+//~~INTERFACES & CLASSES~~
 
 interface Momento<T> {
   toMomento(): T;
@@ -84,14 +86,11 @@ class Cache implements Momento<string> {
   }
 
   toMomento(): string {
-    return `${this.lat},${this.lng},${this.coins}`; //"lat,lng,coins"
+    return `${this.coins}`;
   }
 
   fromMomento(momento: string): void {
-    const info = momento.split(",");
-    this.lat = parseInt(info[0]);
-    this.lng = parseInt(info[1]);
-    this.coins = parseInt(info[2]);
+    this.coins = parseInt(momento);
   }
 }
 
@@ -127,20 +126,28 @@ save_btn.addEventListener("click", () => {
   saveGame();
 });
 
-loadGame();
+const reset_btn = document.createElement("button");
+reset_btn.innerHTML = "🚮";
+status_panel.append(reset_btn);
+reset_btn.addEventListener("click", () => {
+  resetGame();
+});
 
+//Load the game from a save file, or set up the default settings if not
+loadGame();
+createArrows();
+
+//~~FUNCTIONS BELOW~~
 //Cache spawner
-//It just passes some bounds for the cache's location, places it, and binds a popup.
-//I prefer to use x and y when referring to values on a 2D plane, for clarity.
 function spawnCache(cell: Cell) {
   const coins_length = Math.floor(
     luck([cell.x, cell.y, "initialValue"].toString()) * 100,
   );
   const new_cache = new Cache(cell.x, cell.y, coins_length);
-  if (momento_map.has([cell.x, cell.y])) {
-    new_cache.fromMomento(momento_map.get([cell.x, cell.y])!);
+  if (momento_map.has(`${cell.x}_${cell.y}`)) {
+    new_cache.fromMomento(momento_map.get(`${cell.x}_${cell.y}`)!);
   } else {
-    momento_map.set([cell.x, cell.y], new_cache.toMomento());
+    momento_map.set(`${cell.x}_${cell.y}`, new_cache.toMomento());
   }
 
   const bounds = board.getCellBounds(cell);
@@ -188,7 +195,7 @@ function collectCoin(cache: Cache) {
         cache.coins,
       ),
     );
-    updateCoinCounter();
+    updateCoinCounter(cache);
   } else {
     return false;
   }
@@ -198,13 +205,18 @@ function depositCoin(cache: Cache) {
   const popped_coin = player_coins.pop();
   if (popped_coin) {
     cache.coins++;
-    updateCoinCounter();
+    updateCoinCounter(cache);
   } else {
     return false;
   }
 }
 
-function updateCoinCounter() {
+function updateCoinCounter(cache: Cache | null = null) {
+  //Update cache momento
+  if (cache) {
+    momento_map.set(`${cache.lat}_${cache.lng}`, cache.toMomento());
+  }
+  //Update visual counter
   coin_counter.innerHTML = `${player_coins.length} coins collected.`;
   if (player_coins.length > 0) {
     const top_coin = player_coins[player_coins.length - 1];
@@ -216,7 +228,7 @@ function updateCoinCounter() {
 function generateCaches() {
   //instead of looping through x and y, we loop through the visible cells
   const nearby_cells = board.getCellsNearPoint(map.getCenter());
-  nearby_cells.forEach((cell) => { //Same usage of luck as before
+  nearby_cells.forEach((cell) => {
     if (cell.has_cache) {
       spawnCache(cell);
     }
@@ -283,9 +295,8 @@ function movePlayer(new_location: leaflet.LatLng) {
 
 function resetCells() {
   //clear all caches, and restore based on our new location
-  //before clearing, make sure each one is updated to the correct coin count. Then clear the array
   for (const cache of cache_array) {
-    momento_map.set([cache.lat, cache.lng], cache.toMomento());
+    momento_map.set(`${cache.lat}_${cache.lng}`, cache.toMomento());
   }
   cache_array = [];
 
@@ -297,16 +308,11 @@ function resetCells() {
     }
   });
 
-  //generate new caches
   generateCaches();
 }
 
-generateCaches();
-createArrows();
-
 function saveGame() {
   //to save: player coins, momentos, and location
-  console.log(simplifyCoins(player_coins));
   const save_data = {
     player_info: {
       location: map.getCenter(),
@@ -314,43 +320,36 @@ function saveGame() {
     },
     momentos: mapToArray(momento_map),
   };
-  console.log("Save data:", JSON.stringify(save_data));
   localStorage.setItem(SAVE_KEY, JSON.stringify(save_data));
 }
 
 function loadGame() {
   const load_data = localStorage.getItem(SAVE_KEY);
-  console.log("Load data:", load_data);
   if (load_data) {
     const parsed = JSON.parse(load_data);
-    console.log("Parsed data:", parsed);
+    arrayToMap(parsed.momentos);
     movePlayer(parsed.player_info.location);
     player_coins = coinToObject(parsed.player_info.coins);
-    momento_map = arrayToMap(parsed.momentos);
+    updateCoinCounter();
+  } else {
+    generateCaches();
   }
-  updateCoinCounter();
-  console.log(player_coins);
 }
 
-function mapToArray(given_map: Map<number[], string>) {
-  //JSON takes issue with parsing a Map.
+function mapToArray(given_map: Map<string, string>) { //JSON takes issue with parsing a Map.
   const return_array: string[] = [];
   given_map.forEach((value, key) => {
-    return_array.push(`${key[0]}:${key[1]}:${value}`);
+    return_array.push(`${key}:${value}`);
   });
   return return_array;
 }
 
 function arrayToMap(given_array: string[]) {
-  const return_map: Map<number[], string> = new Map<number[], string>();
+  momento_map = new Map<string, string>();
   for (const str of given_array) {
     const info: string[] = str.split(":");
-    return_map.set([
-      parseInt(info[0]),
-      parseInt(info[1]),
-    ], info[2]);
+    momento_map.set(info[0], info[1]);
   }
-  return return_map;
 }
 
 function simplifyCoins(player_coins: Coin[]) { //Makes the player_coins array JSON-friendly.
@@ -370,4 +369,13 @@ function coinToObject(load_coins: string[]) {
     coin_array.push(new_coin);
   }
   return coin_array;
+}
+
+function resetGame() {
+  //Clear the momento map, coins, and move the player to Oakes Classroom (the default location)
+  cache_array = [];
+  momento_map = new Map<string, string>();
+  player_coins = [];
+  movePlayer(OAKES_CLASSROOM);
+  updateCoinCounter();
 }
