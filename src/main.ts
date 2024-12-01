@@ -39,6 +39,8 @@ const player = {
   position: OAKES_CLASSROOM,
   cell: board.getCellForPoint(OAKES_CLASSROOM),
 };
+let player_history: leaflet.LatLng[] = [];
+let polyline = leaflet.layerGroup();
 
 //~~INTERFACES & CLASSES~~
 
@@ -130,12 +132,15 @@ const reset_btn = document.createElement("button");
 reset_btn.innerHTML = "🚮";
 status_panel.append(reset_btn);
 reset_btn.addEventListener("click", () => {
-  resetGame();
+  const response = confirm("Are you sure?");
+  if (response) {
+    resetGame();
+  }
 });
 
 //Load the game from a save file, or set up the default settings if not
-loadGame();
 createArrows();
+loadGame();
 
 //~~FUNCTIONS BELOW~~
 //Cache spawner
@@ -277,7 +282,10 @@ function createArrows(): HTMLButtonElement[] { //i know this is very ugly so i p
 }
 
 function arrowPress(direction: number, axis: string) {
-  const new_location = player.position;
+  const new_location = new leaflet.LatLng(
+    player.position.lat,
+    player.position.lng,
+  );
   if (axis == "x") {
     new_location.lng += direction;
   } else if (axis == "y") {
@@ -287,10 +295,14 @@ function arrowPress(direction: number, axis: string) {
 }
 
 function movePlayer(new_location: leaflet.LatLng) {
+  player_history.push(new_location);
+
   map.panTo(new_location);
   player.position = new_location;
   player_marker.setLatLng(new_location);
+
   resetCells();
+  drawPolyline(player_history);
 }
 
 function resetCells() {
@@ -307,8 +319,19 @@ function resetCells() {
       map.removeLayer(layer);
     }
   });
+  clearPolyline();
 
   generateCaches();
+}
+
+function clearPolyline() {
+  polyline.removeFrom(map);
+}
+
+function drawPolyline(points: leaflet.LatLng[]) {
+  const new_line = leaflet.polyline(points, { color: "red" });
+  polyline.addLayer(new_line);
+  polyline.addTo(map);
 }
 
 function saveGame() {
@@ -376,6 +399,10 @@ function resetGame() {
   cache_array = [];
   momento_map = new Map<string, string>();
   player_coins = [];
+  player_history = [];
+  player.position = OAKES_CLASSROOM;
   movePlayer(OAKES_CLASSROOM);
+  clearPolyline();
+  polyline = leaflet.layerGroup();
   updateCoinCounter();
 }
