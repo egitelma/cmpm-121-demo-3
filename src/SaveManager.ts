@@ -1,9 +1,5 @@
-import leaflet from "leaflet";
 import { Coin } from "./CacheManager.ts";
-import { PlayerManager } from "./PlayerManager.ts";
-import { CacheManager } from "./CacheManager.ts";
-import { MapUI } from "./MapUI.ts";
-import { Board } from "./board.ts";
+import { GameManager } from "./main.ts";
 
 export class SaveManager {
   private SAVE_KEY = "map_save";
@@ -11,42 +7,38 @@ export class SaveManager {
   }
 
   saveGame(
-    map: leaflet.Map,
-    player_coins: Coin[],
-    momento_map: Map<string, string>,
+    game_manager: GameManager,
   ) {
     //to save: player coins, momentos, and location
     const save_data = {
       player_info: {
-        location: map.getCenter(),
-        coins: this.simplifyCoins(player_coins),
+        location: game_manager.map.getCenter(),
+        coins: this.simplifyCoins(game_manager.player_manager.coins),
       },
-      momentos: this.mapToArray(momento_map),
+      momentos: this.mapToArray(game_manager.cache_manager.momento_map),
     };
     localStorage.setItem(this.SAVE_KEY, JSON.stringify(save_data));
   }
 
   loadGame(
-    map: leaflet.Map,
-    player_manager: PlayerManager,
-    cache_manager: CacheManager,
-    map_ui: MapUI,
-    board: Board,
+    game_manager: GameManager,
   ) {
     const load_data = localStorage.getItem(this.SAVE_KEY);
     if (load_data) {
       const parsed = JSON.parse(load_data);
-      cache_manager.setMomentoMap(this.arrayToMap(parsed.momentos));
-      player_manager.movePlayer(
-        map,
-        parsed.player_info.location,
-        map_ui,
-        cache_manager,
-        board,
+      game_manager.cache_manager.setMomentoMap(
+        this.arrayToMap(parsed.momentos),
       );
-      player_manager.coins = this.coinToObject(parsed.player_info.coins);
+      game_manager.player_manager.movePlayer(
+        game_manager,
+        parsed.player_info.location,
+      );
+      game_manager.player_manager.coins = this.coinToObject(
+        parsed.player_info.coins,
+      );
+      game_manager.ui_manager.updateCoinCounter(null, game_manager);
     } else {
-      cache_manager.generateCaches(map, board);
+      game_manager.cache_manager.generateCaches(game_manager);
     }
   }
 

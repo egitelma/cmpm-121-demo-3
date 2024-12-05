@@ -1,7 +1,7 @@
 import leaflet from "leaflet";
 import luck from "./luck.ts";
-import { Board, Cell } from "./board.ts";
-// import { PlayerManager } from "./PlayerManager.ts";
+import { Cell } from "./board.ts";
+import { GameManager } from "./main.ts";
 
 interface Momento<T> {
   toMomento(): T;
@@ -58,15 +58,6 @@ export class Cache implements Momento<string> {
 export class CacheManager {
   current_caches: Cache[] = [];
   momento_map = new Map<string, string>();
-  cache_functions: ((arg0: Cache) => void)[] = [];
-
-  constructor(
-    collectFunc: (arg0: Cache) => void,
-    depositFunc: (arg0: Cache) => void,
-  ) {
-    this.cache_functions.push(collectFunc);
-    this.cache_functions.push(depositFunc);
-  }
 
   clearCaches() {
     for (const cache of this.current_caches) {
@@ -84,7 +75,7 @@ export class CacheManager {
   }
 
   //Cache spawner
-  spawnCache(map: leaflet.Map, board: Board, cell: Cell) {
+  spawnCache(game_manager: GameManager, cell: Cell) {
     const coins_length = Math.floor(
       luck([cell.x, cell.y, "initialValue"].toString()) * 100,
     );
@@ -95,11 +86,11 @@ export class CacheManager {
       this.saveCache(new_cache);
     }
 
-    const bounds = board.getCellBounds(cell);
+    const bounds = game_manager.board.getCellBounds(cell);
 
     //Cache marker
     const cache_rect = leaflet.rectangle(bounds);
-    cache_rect.addTo(map);
+    cache_rect.addTo(game_manager.map);
 
     //Create popup for the cache
     cache_rect.bindPopup(() => {
@@ -115,13 +106,13 @@ export class CacheManager {
 
       //Bind click events
       collect_button.addEventListener("click", () => {
-        this.cache_functions[0](new_cache);
+        this.collectCoin(game_manager, new_cache);
         popup_div.querySelector<HTMLSpanElement>("#value")!.innerHTML =
           new_cache
             .coins.toString();
       });
       deposit_button.addEventListener("click", () => {
-        this.cache_functions[1](new_cache);
+        this.depositCoin(game_manager, new_cache);
         popup_div.querySelector<HTMLSpanElement>("#value")!.innerHTML =
           new_cache
             .coins.toString();
@@ -132,12 +123,14 @@ export class CacheManager {
     this.current_caches.push(new_cache);
   }
 
-  generateCaches(map: leaflet.Map, board: Board) {
+  generateCaches(game_manager: GameManager) {
     //instead of looping through x and y, we loop through the visible cells
-    const nearby_cells = board.getCellsNearPoint(map.getCenter());
-    nearby_cells.forEach((cell) => {
+    const nearby_cells = game_manager.board.getCellsNearPoint(
+      game_manager.map.getCenter(),
+    );
+    nearby_cells.forEach((cell: Cell) => {
       if (cell.has_cache) {
-        this.spawnCache(map, board, cell);
+        this.spawnCache(game_manager, cell);
       }
     });
   }
@@ -145,5 +138,31 @@ export class CacheManager {
   reset() {
     this.current_caches = [];
     this.momento_map = new Map<string, string>();
+  }
+
+  collectCoin(game_manager: GameManager, cache: Cache) {
+    if (cache.coins > 0) {
+      cache.coins--;
+      game_manager.player_manager.addCoin(
+        new Coin(
+          cache.lat,
+          cache.lng,
+          cache.coins,
+        ),
+      );
+      game_manager.ui_manager.updateCoinCounter(cache, game_manager);
+    } else {
+      return false;
+    }
+  }
+
+  depositCoin(game_manager: GameManager, cache: Cache) {
+    const popped_coin = game_manager.player_manager.removeCoin();
+    if (popped_coin) {
+      cache.coins++;
+      game_manager.ui_manager.updateCoinCounter(cache, game_manager);
+    } else {
+      return false;
+    }
   }
 }

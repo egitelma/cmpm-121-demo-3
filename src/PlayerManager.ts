@@ -1,8 +1,7 @@
 import leaflet from "leaflet";
-import { Board, Cell } from "./board.ts";
+import { Cell } from "./board.ts";
 import { Coin } from "./CacheManager.ts";
-import { MapUI } from "./MapUI.ts";
-import { CacheManager } from "./CacheManager.ts";
+import { GameManager } from "./main.ts";
 
 export class PlayerManager {
   private default_location: leaflet.LatLng;
@@ -17,25 +16,25 @@ export class PlayerManager {
   }
 
   movePlayer(
-    map: leaflet.Map,
+    game_manager: GameManager,
     new_location: leaflet.LatLng,
-    map_ui: MapUI,
-    cache_manager: CacheManager,
-    board: Board,
   ) {
     this.movement_history.push(new_location);
-    map.panTo(new_location);
+    game_manager.map.panTo(new_location);
     this.position = new_location;
 
     //Map manager
-    map_ui.clearRect(map);
-    map_ui.clearPolyline(map);
-    map_ui.moveMarker(new_location);
-    map_ui.drawPolyline(map, this.movement_history);
+    game_manager.ui_manager.map_ui.clearRect(game_manager.map);
+    game_manager.ui_manager.map_ui.clearPolyline(game_manager.map);
+    game_manager.ui_manager.map_ui.moveMarker(new_location);
+    game_manager.ui_manager.map_ui.drawPolyline(
+      game_manager.map,
+      this.movement_history,
+    );
 
     //Cache manager
-    cache_manager.clearCaches();
-    cache_manager.generateCaches(map, board);
+    game_manager.cache_manager.clearCaches();
+    game_manager.cache_manager.generateCaches(game_manager);
   }
 
   reset() {
@@ -50,5 +49,18 @@ export class PlayerManager {
 
   removeCoin() {
     return this.coins.pop();
+  }
+
+  changePosition(game_manager: GameManager, direction: number, axis: string) {
+    const new_location = new leaflet.LatLng(
+      this.position.lat,
+      this.position.lng,
+    );
+    if (axis == "x") {
+      new_location.lng += direction;
+    } else if (axis == "y") {
+      new_location.lat += direction;
+    }
+    this.movePlayer(game_manager, new_location);
   }
 }
