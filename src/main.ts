@@ -3,17 +3,18 @@ import leaflet from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./style.css";
 import "./leafletWorkaround.ts";
-import luck from "./luck.ts";
-import { Board, Cell } from "./board.ts";
+import { Board } from "./board.ts";
+import { Cache, CacheManager, Coin } from "./CacheManager.ts";
+import { SaveManager } from "./SaveManager.ts";
+import { PlayerManager } from "./PlayerManager.ts";
+import { MapUI } from "./MapUI.ts";
 
 //Constants
 const OAKES_CLASSROOM = leaflet.latLng(36.9894981, -122.0627251);
-// const NULL_ISLAND = leaflet.latLng(0, 0)
 const GAMEPLAY_ZOOM_LEVEL = 18;
 const MAX_ZOOM_LEVEL = 19; //Leaflet bugs out at 20
 const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
-const SAVE_KEY = "map_save";
 
 const map = leaflet.map(document.getElementById("map")!, {
   center: OAKES_CLASSROOM,
@@ -25,76 +26,48 @@ const map = leaflet.map(document.getElementById("map")!, {
 });
 map.on("locationfound", () => {
   const new_location = map.getCenter();
-  movePlayer(new_location);
+  player_manager.movePlayer(map, new_location, map_ui, cache_manager, board);
 });
 map.on("locationerror", () => {
   console.log("Unable to geolocate...");
 });
 
-const player_marker = leaflet.marker(OAKES_CLASSROOM);
-let cache_array: Cache[] = []; //current caches
-let momento_map = new Map<string, string>(); //Momentos - map x,y pairs to momentos (${x}_${y} as a key format)
 const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
-const player = {
-  position: OAKES_CLASSROOM,
-  cell: board.getCellForPoint(OAKES_CLASSROOM),
-};
-let player_history: leaflet.LatLng[] = [];
-let polyline = leaflet.layerGroup();
 
-//~~INTERFACES & CLASSES~~
-
-interface Momento<T> {
-  toMomento(): T;
-  fromMomento(momento: T): void;
-}
-
-class Coin implements Momento<string> {
-  lat: number;
-  lng: number;
-  serial: number;
-
-  constructor(x: number, y: number, serial: number) {
-    this.lat = x;
-    this.lng = y;
-    this.serial = serial;
-  }
-
-  toMomento(): string {
-    return `${this.lat},${this.lng},${this.serial}`;
-  }
-
-  fromMomento(momento: string): void {
-    const info = momento.split(",");
-    this.lat = parseInt(info[0]);
-    this.lng = parseInt(info[1]);
-    this.serial = parseInt(info[2]);
-  }
-
-  toString(): string {
-    return `${this.lat}:${this.lng}#${this.serial}`;
+function collectCoin(cache: Cache) {
+  if (cache.coins > 0) {
+    cache.coins--;
+    player_manager.addCoin(
+      new Coin(
+        cache.lat,
+        cache.lng,
+        cache.coins,
+      ),
+    );
+    updateCoinCounter(cache);
+  } else {
+    return false;
   }
 }
 
-class Cache implements Momento<string> {
-  lat: number;
-  lng: number;
-  coins: number;
-
-  constructor(x: number, y: number, coins_num: number) {
-    this.lat = x;
-    this.lng = y;
-    this.coins = coins_num;
-  }
-
-  toMomento(): string {
-    return `${this.coins}`;
-  }
-
-  fromMomento(momento: string): void {
-    this.coins = parseInt(momento);
+function depositCoin(cache: Cache) {
+  const popped_coin = player_manager.removeCoin();
+  if (popped_coin) {
+    cache.coins++;
+    updateCoinCounter(cache);
+  } else {
+    return false;
   }
 }
+
+//Setup external managers
+const save_manager = new SaveManager();
+const player_manager = new PlayerManager(
+  OAKES_CLASSROOM,
+  board.getCellForPoint(OAKES_CLASSROOM),
+);
+const cache_manager = new CacheManager(collectCoin, depositCoin);
+const map_ui = new MapUI(map, OAKES_CLASSROOM);
 
 //I wasn't sure if any of these were unnecessary, so I transferred them all over from example.ts.
 leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -103,10 +76,7 @@ leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
 }).addTo(map);
 
-player_marker.bindPopup("Player location").openPopup(); //The example.ts used tooltip, so I wanted to try popups
-player_marker.addTo(map);
-
-let player_coins: Coin[] = [];
+//UI Setup - should I also move this to another file, maybe??
 const status_panel = document.querySelector<HTMLDivElement>("#statusPanel")!;
 const coin_counter = document.createElement("p");
 coin_counter.innerHTML = "0 coins collected";
@@ -125,7 +95,7 @@ const save_btn = document.createElement("button");
 save_btn.innerHTML = "Save";
 status_panel.append(save_btn);
 save_btn.addEventListener("click", () => {
-  saveGame();
+  save_manager.saveGame(map, player_manager.coins, cache_manager.momento_map);
 });
 
 const reset_btn = document.createElement("button");
@@ -140,104 +110,21 @@ reset_btn.addEventListener("click", () => {
 
 //Load the game from a save file, or set up the default settings if not
 createArrows();
-loadGame();
+save_manager.loadGame(map, player_manager, cache_manager, map_ui, board);
+updateCoinCounter();
 
-//~~FUNCTIONS BELOW~~
-//Cache spawner
-function spawnCache(cell: Cell) {
-  const coins_length = Math.floor(
-    luck([cell.x, cell.y, "initialValue"].toString()) * 100,
-  );
-  const new_cache = new Cache(cell.x, cell.y, coins_length);
-  if (momento_map.has(`${cell.x}_${cell.y}`)) {
-    new_cache.fromMomento(momento_map.get(`${cell.x}_${cell.y}`)!);
-  } else {
-    momento_map.set(`${cell.x}_${cell.y}`, new_cache.toMomento());
-  }
-
-  const bounds = board.getCellBounds(cell);
-
-  //Cache marker
-  const cache_rect = leaflet.rectangle(bounds);
-  cache_rect.addTo(map);
-
-  //Create popup for the cache
-  cache_rect.bindPopup(() => {
-    const popup_div = document.createElement("div");
-    popup_div.innerHTML =
-      `This is a cache at (${cell.x},${cell.y}), currently containing <span id="value">${new_cache.coins}</span> coins.`;
-    const collect_button = document.createElement("button");
-    const deposit_button = document.createElement("button");
-    collect_button.innerHTML = `Take a coin`;
-    deposit_button.innerHTML = `Deposit a coin`;
-    popup_div.append(collect_button);
-    popup_div.append(deposit_button);
-
-    //Bind click events
-    collect_button.addEventListener("click", () => {
-      collectCoin(new_cache);
-      popup_div.querySelector<HTMLSpanElement>("#value")!.innerHTML = new_cache
-        .coins.toString();
-    });
-    deposit_button.addEventListener("click", () => {
-      depositCoin(new_cache);
-      popup_div.querySelector<HTMLSpanElement>("#value")!.innerHTML = new_cache
-        .coins.toString();
-    });
-
-    return popup_div;
-  });
-  cache_array.push(new_cache);
-}
-
-function collectCoin(cache: Cache) {
-  if (cache.coins > 0) {
-    cache.coins--;
-    player_coins.push(
-      new Coin(
-        cache.lat,
-        cache.lng,
-        cache.coins,
-      ),
-    );
-    updateCoinCounter(cache);
-  } else {
-    return false;
-  }
-}
-
-function depositCoin(cache: Cache) {
-  const popped_coin = player_coins.pop();
-  if (popped_coin) {
-    cache.coins++;
-    updateCoinCounter(cache);
-  } else {
-    return false;
-  }
-}
-
+//~~General Functions~~
 function updateCoinCounter(cache: Cache | null = null) {
   //Update cache momento
   if (cache) {
-    momento_map.set(`${cache.lat}_${cache.lng}`, cache.toMomento());
+    cache_manager.saveCache(cache);
   }
   //Update visual counter
-  coin_counter.innerHTML = `${player_coins.length} coins collected.`;
-  if (player_coins.length > 0) {
-    const top_coin = player_coins[player_coins.length - 1];
+  coin_counter.innerHTML = `${player_manager.coins.length} coins collected.`;
+  if (player_manager.coins.length > 0) {
+    const top_coin = player_manager.coins[player_manager.coins.length - 1];
     coin_counter.innerHTML += ` Most recent coin: ${top_coin.toString()}`;
   }
-}
-
-//Actually spawn caches
-function generateCaches() {
-  //instead of looping through x and y, we loop through the visible cells
-  const nearby_cells = board.getCellsNearPoint(map.getCenter());
-  nearby_cells.forEach((cell) => {
-    if (cell.has_cache) {
-      spawnCache(cell);
-    }
-  });
 }
 
 function createArrows(): HTMLButtonElement[] { //i know this is very ugly so i put it in its own function
@@ -246,7 +133,7 @@ function createArrows(): HTMLButtonElement[] { //i know this is very ugly so i p
   left_arrow.innerHTML = "⬅️";
   left_arrow.addEventListener("click", () => {
     const new_location = arrowPress(-TILE_DEGREES, "x");
-    movePlayer(new_location);
+    player_manager.movePlayer(map, new_location, map_ui, cache_manager, board);
   });
   status_panel.append(left_arrow);
   arrows.push(left_arrow);
@@ -255,7 +142,7 @@ function createArrows(): HTMLButtonElement[] { //i know this is very ugly so i p
   right_arrow.innerHTML = "➡️";
   right_arrow.addEventListener("click", () => {
     const new_location = arrowPress(TILE_DEGREES, "x");
-    movePlayer(new_location);
+    player_manager.movePlayer(map, new_location, map_ui, cache_manager, board);
   });
   status_panel.append(right_arrow);
   arrows.push(right_arrow);
@@ -264,7 +151,7 @@ function createArrows(): HTMLButtonElement[] { //i know this is very ugly so i p
   up_arrow.innerHTML = "⬆️";
   up_arrow.addEventListener("click", () => {
     const new_location = arrowPress(TILE_DEGREES + 0.0000009, "y");
-    movePlayer(new_location);
+    player_manager.movePlayer(map, new_location, map_ui, cache_manager, board);
   });
   status_panel.append(up_arrow);
   arrows.push(up_arrow);
@@ -273,7 +160,7 @@ function createArrows(): HTMLButtonElement[] { //i know this is very ugly so i p
   down_arrow.innerHTML = "⬇️";
   down_arrow.addEventListener("click", () => {
     const new_location = arrowPress(-TILE_DEGREES - 0.0000009, "y");
-    movePlayer(new_location);
+    player_manager.movePlayer(map, new_location, map_ui, cache_manager, board);
   });
   status_panel.append(down_arrow);
   arrows.push(down_arrow);
@@ -283,8 +170,8 @@ function createArrows(): HTMLButtonElement[] { //i know this is very ugly so i p
 
 function arrowPress(direction: number, axis: string) {
   const new_location = new leaflet.LatLng(
-    player.position.lat,
-    player.position.lng,
+    player_manager.position.lat,
+    player_manager.position.lng,
   );
   if (axis == "x") {
     new_location.lng += direction;
@@ -294,115 +181,12 @@ function arrowPress(direction: number, axis: string) {
   return new_location;
 }
 
-function movePlayer(new_location: leaflet.LatLng) {
-  player_history.push(new_location);
-
-  map.panTo(new_location);
-  player.position = new_location;
-  player_marker.setLatLng(new_location);
-
-  resetCells();
-  drawPolyline(player_history);
-}
-
-function resetCells() {
-  //clear all caches, and restore based on our new location
-  for (const cache of cache_array) {
-    momento_map.set(`${cache.lat}_${cache.lng}`, cache.toMomento());
-  }
-  cache_array = [];
-
-  //thx to Jackie Sanchez for helping me out with this!
-  //[clearing the Leaflet rectangles from the map]
-  map.eachLayer((layer) => {
-    if (layer instanceof leaflet.Rectangle) {
-      map.removeLayer(layer);
-    }
-  });
-  clearPolyline();
-
-  generateCaches();
-}
-
-function clearPolyline() {
-  polyline.removeFrom(map);
-}
-
-function drawPolyline(points: leaflet.LatLng[]) {
-  const new_line = leaflet.polyline(points, { color: "red" });
-  polyline.addLayer(new_line);
-  polyline.addTo(map);
-}
-
-function saveGame() {
-  //to save: player coins, momentos, and location
-  const save_data = {
-    player_info: {
-      location: map.getCenter(),
-      coins: simplifyCoins(player_coins),
-    },
-    momentos: mapToArray(momento_map),
-  };
-  localStorage.setItem(SAVE_KEY, JSON.stringify(save_data));
-}
-
-function loadGame() {
-  const load_data = localStorage.getItem(SAVE_KEY);
-  if (load_data) {
-    const parsed = JSON.parse(load_data);
-    arrayToMap(parsed.momentos);
-    movePlayer(parsed.player_info.location);
-    player_coins = coinToObject(parsed.player_info.coins);
-    updateCoinCounter();
-  } else {
-    generateCaches();
-  }
-}
-
-function mapToArray(given_map: Map<string, string>) { //JSON takes issue with parsing a Map.
-  const return_array: string[] = [];
-  given_map.forEach((value, key) => {
-    return_array.push(`${key}:${value}`);
-  });
-  return return_array;
-}
-
-function arrayToMap(given_array: string[]) {
-  momento_map = new Map<string, string>();
-  for (const str of given_array) {
-    const info: string[] = str.split(":");
-    momento_map.set(info[0], info[1]);
-  }
-}
-
-function simplifyCoins(player_coins: Coin[]) { //Makes the player_coins array JSON-friendly.
-  const coin_array: string[] = [];
-  for (const coin of player_coins) {
-    coin_array.push(coin.toMomento());
-  }
-  return coin_array;
-}
-
-function coinToObject(load_coins: string[]) {
-  const coin_array: Coin[] = [];
-  let new_coin;
-  for (const coin_momento of load_coins) {
-    new_coin = new Coin(0, 0, 0);
-    new_coin.fromMomento(coin_momento);
-    coin_array.push(new_coin);
-  }
-  return coin_array;
-}
-
 function resetGame() {
-  //Clear the momento map, coins, and move the player to Oakes Classroom (the default location)
-  cache_array = [];
-  momento_map = new Map<string, string>();
-  player_coins = [];
-  player_history = [];
-  player.position = OAKES_CLASSROOM;
-  movePlayer(OAKES_CLASSROOM);
-  clearPolyline();
-  polyline = leaflet.layerGroup();
+  //Clear all info and move the player to Oakes Classroom (the default location)
+  cache_manager.reset();
+  player_manager.reset();
+  player_manager.movePlayer(map, OAKES_CLASSROOM, map_ui, cache_manager, board); //okay this is a little ridiculous
+  map_ui.reset(map);
+
   updateCoinCounter();
 }
